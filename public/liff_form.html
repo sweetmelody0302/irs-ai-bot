@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Irs 伊爾絲的心靈幽徑 - 專屬評估通道</title>
+    <!-- 引入 Tailwind CSS 確保高質感、自適應排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 LINE LIFF SDK -->
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <!-- 引入 SweetAlert2 做高質感的彈窗提示，取代醜醜的 alert() -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <style>
+        /* 尊榮感身心靈漸層背景 */
+        body {
+            background: linear-gradient(135deg, #f3e8ff 0%, #e0e7ff 100%);
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 10px 25px rgba(107, 33, 168, 0.1);
+        }
+    </style>
+</head>
+<body class="p-4 flex items-center justify-center">
+
+    <div class="glass-panel w-full max-w-md rounded-2xl p-6 relative overflow-hidden">
+        <!-- 頂部裝飾 -->
+        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-400 to-indigo-500"></div>
+
+        <div class="text-center mb-6 mt-2">
+            <h1 class="text-2xl font-bold text-gray-800 tracking-wide">專屬諮詢評估</h1>
+            <p class="text-sm text-gray-500 mt-2">伊爾絲老師將親自為您檢視需求</p>
+        </div>
+
+        <form id="consultForm" class="space-y-5">
+            <!-- 姓名 -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">您的稱呼 ✨</label>
+                <input type="text" id="customerName" required placeholder="例如：王小明 / 布丁麻麻" 
+                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none transition-all">
+            </div>
+
+            <!-- 服務類型 -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">需要協助的項目 🌿</label>
+                <select id="serviceType" required 
+                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 outline-none bg-white">
+                    <option value="" disabled selected>請選擇一個項目...</option>
+                    <option value="動物專屬服務 (溝通/能量調理)">🐾 動物專屬服務 (溝通/能量調理)</option>
+                    <option value="命理與靈性諮詢 (塔羅/占星/人類圖)">🔮 命理與靈性諮詢 (塔羅/占星/人類圖)</option>
+                    <option value="整合式療癒 (元辰宮/法事改運)">🕊️ 整合式療癒 (元辰宮/法事改運)</option>
+                    <option value="情緒陪伴支持">🫂 情緒陪伴支持</option>
+                    <option value="其他 (請在下方說明)">✨ 其他 (請在下方說明)</option>
+                </select>
+            </div>
+
+            <!-- 狀況描述 -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">目前遇到的狀況 📝</label>
+                <textarea id="details" required rows="4" placeholder="請盡量詳細描述您或毛孩目前的狀況，幫助老師能更精準地為您評估..." 
+                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 outline-none resize-none"></textarea>
+                <p class="text-xs text-gray-400 mt-1">*若需提供照片(如寵物照片)，請於送出表單後，直接傳送至 LINE 聊天室即可。</p>
+            </div>
+
+            <!-- 隱藏欄位，用來裝 LINE 的資料 -->
+            <input type="hidden" id="lineProfileName" value="">
+            <input type="hidden" id="lineUserId" value="">
+
+            <!-- 提交按鈕 -->
+            <button type="submit" id="submitBtn" 
+                class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-xl hover:opacity-90 transition-all transform active:scale-95 flex justify-center items-center">
+                <span>送出專屬評估表</span>
+            </button>
+        </form>
+    </div>
+
+    <script>
+        // ==========================================
+        // ⚠️ 老闆請注意：這裡的兩個 URL 要換成您申請好的！
+        // ==========================================
+        const LIFF_ID = "您的_LIFF_ID_填在這裡"; 
+        const GOOGLE_SCRIPT_URL = "您的_Google_App_Script_Web_App_URL_填在這裡"; 
+
+        // 頁面載入後立刻初始化 LIFF
+        document.addEventListener("DOMContentLoaded", () => {
+            initializeLiff();
+        });
+
+        async function initializeLiff() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    document.getElementById('lineProfileName').value = profile.displayName;
+                    document.getElementById('lineUserId').value = profile.userId;
+                } else {
+                    // 若在外部瀏覽器打開，引導登入
+                    liff.login();
+                }
+            } catch (err) {
+                console.error("LIFF 初始化失敗", err);
+                Swal.fire('系統提示', '無法取得 LINE 身份，請確認是在 LINE 中開啟。', 'warning');
+            }
+        }
+
+        // 綁定表單送出事件
+        document.getElementById('consultForm').addEventListener('submit', async (e) => {
+            e.preventDefault(); // 防止網頁重整
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 傳送中，請稍候...';
+
+            // 收集資料
+            const payload = {
+                customerName: document.getElementById('customerName').value,
+                serviceType: document.getElementById('serviceType').value,
+                details: document.getElementById('details').value,
+                lineProfileName: document.getElementById('lineProfileName').value || "未取得",
+                lineUserId: document.getElementById('lineUserId').value || "未取得"
+            };
+
+            try {
+                // 將資料用 Fire & Forget 方式打給 Google Sheets
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS 預檢
+                    body: JSON.stringify(payload)
+                });
+
+                // 成功後顯示尊榮提示，然後關閉 LIFF
+                await Swal.fire({
+                    title: '成功送出！',
+                    text: '老師已收到您的需求，將盡快為您評估並回覆喔 🕊️',
+                    icon: 'success',
+                    confirmButtonColor: '#9333ea',
+                    confirmButtonText: '回到聊天室'
+                });
+                
+                liff.closeWindow();
+
+            } catch (error) {
+                console.error("傳送失敗", error);
+                Swal.fire('傳送失敗', '請稍後再試或直接於聊天室留言給我們。', 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '送出專屬評估表';
+            }
+        });
+    </script>
+</body>
+</html>
