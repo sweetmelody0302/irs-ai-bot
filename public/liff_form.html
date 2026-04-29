@@ -139,11 +139,16 @@
 
             try {
                 // 將資料用 Fire & Forget 方式打給 Google Sheets
-                await fetch(GOOGLE_SCRIPT_URL, {
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS 預檢
                     body: JSON.stringify(payload)
                 });
+                
+                // CTO 防呆機制：檢查 Google 是否回傳非 200 狀態碼 (例如權限不足 401/403)
+                if (!response.ok) {
+                    throw new Error(`Google Apps Script 回傳錯誤狀態碼: ${response.status}`);
+                }
 
                 // 成功後顯示尊榮提示，然後關閉 LIFF
                 await Swal.fire({
@@ -158,7 +163,14 @@
 
             } catch (error) {
                 console.error("傳送失敗", error);
-                Swal.fire('傳送失敗', '請稍後再試或直接於聊天室留言給我們。', 'error');
+                
+                // CTO 終極除錯術：把真正的錯誤訊息顯示出來！
+                Swal.fire({
+                    title: '傳送失敗',
+                    html: `請稍後再試或直接於聊天室留言給我們。<br><br><span style="color:red; font-size:12px;">技術錯誤資訊: ${error.message}</span>`,
+                    icon: 'error'
+                });
+                
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '送出專屬評估表';
             }
