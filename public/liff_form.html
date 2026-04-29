@@ -83,8 +83,8 @@
         // ==========================================
         // ⚠️ 老闆請注意：這裡的兩個 URL 要換成您申請好的！
         // ==========================================
-        const LIFF_ID = "您的_LIFF_ID_填在這裡"; 
-        const GOOGLE_SCRIPT_URL = "您的_Google_App_Script_Web_App_URL_填在這裡"; 
+        const LIFF_ID = "2009929382-n1NaVwZP"; 
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzn0jauzcIUDU8QO-GT56iK8RVlUKIGvMlWHGbL_UcQ-Gm_FUuGwK7t9nMCFwVPyf_x/exec"; 
 
         // 頁面載入後立刻初始化 LIFF
         document.addEventListener("DOMContentLoaded", () => {
@@ -92,6 +92,12 @@
         });
 
         async function initializeLiff() {
+            // CTO 防呆機制：檢查老闆是不是忘記換 LIFF_ID 了
+            if (LIFF_ID === "您的_LIFF_ID_填在這裡" || !LIFF_ID) {
+                Swal.fire('CTO 溫馨提醒', '老闆！您忘記把原始碼裡面的 LIFF_ID 換成您專屬的金鑰囉！請回到 GitHub 修改並存檔。', 'error');
+                return;
+            }
+
             try {
                 await liff.init({ liffId: LIFF_ID });
                 if (liff.isLoggedIn()) {
@@ -99,18 +105,24 @@
                     document.getElementById('lineProfileName').value = profile.displayName;
                     document.getElementById('lineUserId').value = profile.userId;
                 } else {
-                    // 若在外部瀏覽器打開，引導登入
-                    liff.login();
+                    // 若在外部瀏覽器打開，自動引導登入，並設定登入後跳轉回來
+                    liff.login({ redirectUri: window.location.href });
                 }
             } catch (err) {
                 console.error("LIFF 初始化失敗", err);
-                Swal.fire('系統提示', '無法取得 LINE 身份，請確認是在 LINE 中開啟。', 'warning');
+                Swal.fire('系統提示', '無法取得 LINE 身份，請確認是在 LINE 手機 App 中開啟，或檢查 LIFF 設定是否正確。', 'warning');
             }
         }
 
         // 綁定表單送出事件
         document.getElementById('consultForm').addEventListener('submit', async (e) => {
             e.preventDefault(); // 防止網頁重整
+
+            // CTO 防呆機制：檢查老闆是不是忘記換 Google 資料庫網址了
+            if (GOOGLE_SCRIPT_URL === "您的_Google_App_Script_Web_App_URL_填在這裡" || !GOOGLE_SCRIPT_URL) {
+                Swal.fire('CTO 溫馨提醒', '老闆！您忘記填寫 GOOGLE_SCRIPT_URL 囉！這樣收不到客戶資料，請回到 GitHub 修改！', 'error');
+                return;
+            }
             
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = true;
