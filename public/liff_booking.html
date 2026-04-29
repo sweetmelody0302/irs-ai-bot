@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Irs 伊爾絲的心靈幽徑 - 尊榮預約系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #fdf4ff 0%, #e0e7ff 100%);
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 25px rgba(107, 33, 168, 0.1);
+        }
+        /* 隱藏預設的日期選擇器圖示，讓畫面更乾淨 */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            background-color: #9333ea;
+            padding: 5px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body class="p-4 flex items-center justify-center">
+
+    <div class="glass-panel w-full max-w-md rounded-2xl p-6 relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-indigo-500"></div>
+
+        <div class="text-center mb-6 mt-2">
+            <h1 class="text-2xl font-bold text-gray-800 tracking-wide">專屬時段預約</h1>
+            <p class="text-sm text-gray-500 mt-2">請選擇您希望安排的療癒時間 🕊️</p>
+        </div>
+
+        <form id="bookingForm" class="space-y-6">
+            <!-- 步驟一：選擇日期 -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">步驟一：選擇日期 📅</label>
+                <input type="date" id="bookingDate" required 
+                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 outline-none transition-all text-gray-700">
+            </div>
+
+            <!-- 隱藏的時段區塊 (選了日期才會跑出來) -->
+            <div id="timeSlotContainer" class="hidden">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">步驟二：選擇時段 ⏳</label>
+                <div id="loadingSlots" class="text-sm text-purple-600 hidden my-2">
+                    <span class="animate-pulse">正在為您與宇宙同步空檔中... ✨</span>
+                </div>
+                <div id="slotsGrid" class="grid grid-cols-3 gap-3">
+                    <!-- 時段按鈕會透過 JS 動態產生在這裡 -->
+                </div>
+                <p id="noSlotsMsg" class="text-sm text-red-500 hidden mt-2">這天老師的行程滿囉，請選擇其他日期 🌿</p>
+                <!-- 用來儲存客戶選中的時間 -->
+                <input type="hidden" id="selectedTime" required>
+            </div>
+
+            <!-- 步驟三：填寫資料 -->
+            <div id="personalInfoContainer" class="hidden space-y-4 border-t pt-4 mt-2">
+                <label class="block text-sm font-semibold text-gray-700">步驟三：確認預約資訊 📝</label>
+                <input type="text" id="customerName" required placeholder="您的稱呼 (如：布丁麻麻)" 
+                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 outline-none">
+                
+                <select id="serviceType" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 outline-none bg-white">
+                    <option value="" disabled selected>請選擇服務項目...</option>
+                    <option value="動物專屬服務">🐾 動物專屬服務</option>
+                    <option value="命理與靈性諮詢">🔮 命理與靈性諮詢</option>
+                    <option value="整合式療癒">🕊️ 整合式療癒</option>
+                </select>
+            </div>
+
+            <input type="hidden" id="lineProfileName" value="">
+            <input type="hidden" id="lineUserId" value="">
+
+            <button type="submit" id="submitBtn" disabled
+                class="w-full bg-gray-300 text-gray-500 font-bold py-3.5 rounded-xl shadow-md transition-all flex justify-center items-center cursor-not-allowed">
+                <span>請先選擇日期與時段</span>
+            </button>
+        </form>
+    </div>
+
+    <script>
+        // ==========================================
+        // ⚠️ 老闆請注意：我們需要建立一個新的 LINE LIFF ID 給預約系統！
+        // ==========================================
+        const LIFF_ID = "2009930111-aIQlRtsV"; 
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpsu-X5uQeg0HPqxgCguU3VpngsFAt-usNAmp5MGVvGSZafSVjyeOHUl42S1PtP9wJ/exec"; 
+
+        document.addEventListener("DOMContentLoaded", () => {
+            // 設定日期選擇器只能選今天以後的日期
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('bookingDate').setAttribute('min', today);
+            initializeLiff();
+        });
+
+        async function initializeLiff() {
+            if (LIFF_ID === "請填入_預約系統專屬的_LIFF_ID") {
+                Swal.fire('CTO 溫馨提醒', '老闆！記得換上專屬的 LIFF ID 喔！', 'error'); return;
+            }
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    document.getElementById('lineProfileName').value = profile.displayName;
+                    document.getElementById('lineUserId').value = profile.userId;
+                } else {
+                    liff.login({ redirectUri: window.location.href });
+                }
+            } catch (err) {
+                console.error("LIFF 錯誤", err);
+            }
+        }
+
+        // ==========================================
+        // 核心商業邏輯：當客戶選擇日期，自動去 Google 日曆抓空檔
+        // ==========================================
+        document.getElementById('bookingDate').addEventListener('change', async (e) => {
+            const selectedDate = e.target.value;
+            if (!selectedDate) return;
+
+            // UI 狀態切換
+            document.getElementById('timeSlotContainer').classList.remove('hidden');
+            document.getElementById('loadingSlots').classList.remove('hidden');
+            document.getElementById('slotsGrid').innerHTML = '';
+            document.getElementById('noSlotsMsg').classList.add('hidden');
+            document.getElementById('personalInfoContainer').classList.add('hidden');
+            resetSubmitBtn();
+
+            try {
+                // 呼叫我們的 GAS 後端查詢空檔
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: "getSlots", date: selectedDate })
+                });
+                const data = await response.json();
+
+                document.getElementById('loadingSlots').classList.add('hidden');
+
+                if (data.status === 'success' && data.availableSlots.length > 0) {
+                    renderSlots(data.availableSlots);
+                } else {
+                    document.getElementById('noSlotsMsg').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error(error);
+                Swal.fire('系統提示', '連線到宇宙資料庫有點卡卡的，請重新選擇日期。', 'warning');
+                document.getElementById('loadingSlots').classList.add('hidden');
+            }
+        });
+
+        // 畫出時段按鈕
+        function renderSlots(slots) {
+            const slotsGrid = document.getElementById('slotsGrid');
+            slots.forEach(time => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.innerText = time;
+                btn.className = 'py-2 px-1 border-2 border-purple-200 rounded-lg text-purple-700 font-semibold hover:bg-purple-50 focus:outline-none transition-colors';
+                
+                btn.onclick = () => {
+                    // 拔掉所有按鈕的選取狀態
+                    Array.from(slotsGrid.children).forEach(child => {
+                        child.classList.remove('bg-purple-600', 'text-white', 'border-purple-600');
+                        child.classList.add('border-purple-200', 'text-purple-700');
+                    });
+                    // 加上目前按鈕的選取狀態
+                    btn.classList.remove('border-purple-200', 'text-purple-700');
+                    btn.classList.add('bg-purple-600', 'text-white', 'border-purple-600');
+                    
+                    document.getElementById('selectedTime').value = time;
+                    // 打開下一步填寫資料區塊
+                    document.getElementById('personalInfoContainer').classList.remove('hidden');
+                    enableSubmitBtn();
+                };
+                slotsGrid.appendChild(btn);
+            });
+        }
+
+        function resetSubmitBtn() {
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.classList.remove('bg-gradient-to-r', 'from-purple-600', 'to-indigo-600', 'text-white', 'hover:shadow-xl');
+            btn.classList.add('bg-gray-300', 'text-gray-500', 'cursor-not-allowed');
+            btn.innerText = '請先選擇日期與時段';
+        }
+
+        function enableSubmitBtn() {
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = false;
+            btn.classList.remove('bg-gray-300', 'text-gray-500', 'cursor-not-allowed');
+            btn.classList.add('bg-gradient-to-r', 'from-purple-600', 'to-indigo-600', 'text-white', 'hover:shadow-xl');
+            btn.innerText = '確認預約';
+        }
+
+        // ==========================================
+        // 送出預約
+        // ==========================================
+        document.getElementById('bookingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '✨ 正在為您預定專屬時空...';
+
+            const payload = {
+                action: "book",
+                date: document.getElementById('bookingDate').value,
+                time: document.getElementById('selectedTime').value,
+                customerName: document.getElementById('customerName').value,
+                serviceType: document.getElementById('serviceType').value,
+                lineProfileName: document.getElementById('lineProfileName').value,
+                lineUserId: document.getElementById('lineUserId').value
+            };
+
+            try {
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if(result.status === 'success') {
+                    await Swal.fire({
+                        title: '預約成功！',
+                        text: '老師已將這段時間專屬於您 🕊️',
+                        icon: 'success',
+                        confirmButtonColor: '#9333ea',
+                        confirmButtonText: '回到聊天室'
+                    });
+                    liff.closeWindow();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                Swal.fire('預約失敗', '哎呀，這個時段剛剛可能被其他靈魂訂走了，請再試一次！', 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '確認預約';
+            }
+        });
+    </script>
+</body>
+</html>
