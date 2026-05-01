@@ -1,111 +1,125 @@
 // ==========================================
-// 專案：Irs 伊爾絲的心靈幽徑 - 專屬 AI 客服中繼站
-// 用途：負責攔截 LINE 訊息，轉發給 Dify，並替換 LIFF 尊榮表單網址
+// 專案：Irs 伊爾絲的心靈幽徑 - 中繼站大腦 (含老闆遙控器)
+// 用途：串接 LINE 與 Dify AI，並支援老闆輸入「接手」暫停 AI
 // ==========================================
-
 const express = require('express');
-const line = require('@line/bot-sdk');
 const axios = require('axios');
-require('dotenv').config();
-
 const app = express();
+app.use(express.json());
 
-// 1. 從環境變數抓取老闆的各項金鑰
-const lineConfig = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-    channelSecret: process.env.LINE_CHANNEL_SECRET
-};
+// --- 環境變數讀取 ---
+const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const DIFY_API_KEY = process.env.DIFY_API_KEY;
+const DIFY_API_URL = process.env.DIFY_API_URL || 'https://api.dify.ai/v1/chat-messages';
+const LIFF_URL = process.env.LIFF_URL; 
 
-const client = new line.Client(lineConfig);
+// ⚠️ 寫入老闆的專屬 ID，讓系統認得您的遙控器指令
+const BOSS_ID = 'U9bd943de8f86baf28fd585b1e0156cc5'; 
 
-// CTO 商業思維：加入記憶體機制，讓 AI 能記住同一個客戶的上下文，對話更自然！
-const conversations = {};
+// --- 記憶體資料庫 ---
+const userConversations = new Map(); // 記錄 Dify 上下文 ID
+const mutedUsers = new Map();        // 記錄被靜音(真人接手)的客戶 { userId: expireTimestamp }
+let lastActiveUserId = null;         // 記錄最後一個傳訊息的客戶
 
-// 2. 建立靜態資料夾，用來放我們高質感的 liff_form.html
-app.use(express.static('public'));
+app.post('/webhook', async (req, res) => {
+    res.status(200).send('OK'); // 先回傳 200 OK，避免 LINE Timeout
 
-// 3. 這是 LINE 專屬的接收暗門 (Webhook)
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
-    try {
-        const events = req.body.events;
-        await Promise.all(events.map(handleEvent));
-        res.json({ success: true });
-    } catch (err) {
-        console.error('Webhook 處理發生錯誤:', err);
-        res.status(500).end();
+    const events = req.body.events;
+    if (!events) return;
+
+    for (let event of events) {
+        if (event.type !== 'message' || event.message.type !== 'text') continue;
+
+        const userId = event.source.userId;
+        const userMessage = event.message.text.trim();
+
+        // ==========================================
+        // 👑 狀況 A：如果是老闆本人的遙控指令
+        // ==========================================
+        if (userId === BOSS_ID) {
+            if (userMessage === '接手') {
+                if (lastActiveUserId) {
+                    // 將上一位客戶靜音 12 小時
+                    mutedUsers.set(lastActiveUserId, Date.now() + 12 * 60 * 60 * 1000);
+                    await sendLineMessage(event.replyToken, `✅ 遙控成功！\n已暫停該客戶的 AI 助理 12 小時 🤫\n\n👉 請點此前往後台與客戶對話：\nhttps://chat.line.biz/`);
+                } else {
+                    await sendLineMessage(event.replyToken, `⚠️ 目前沒有活躍的客戶可接手喔！`);
+                }
+            } else if (userMessage === '恢復') {
+                if (lastActiveUserId) {
+                    mutedUsers.delete(lastActiveUserId); // 解除靜音
+                    await sendLineMessage(event.replyToken, `✅ 遙控成功！\n已恢復該客戶的 AI 自動回覆 🤖`);
+                }
+            }
+            continue; // 老闆的對話不傳給 AI，直接結束這回合
+        }
+
+        // ==========================================
+        // 👤 狀況 B：如果是一般客戶的訊息
+        // ==========================================
+        lastActiveUserId = userId; // 記錄他為最後發話者
+
+        // 🛑 檢查：如果老闆正在接手，AI 閉嘴不回覆
+        if (mutedUsers.has(userId) && Date.now() < mutedUsers.get(userId)) {
+            console.log(`[真人接手模式中] 忽略客戶 ${userId} 的訊息`);
+            continue; 
+        }
+
+        // 🤖 正常情況：呼叫 Dify AI
+        try {
+            const payload = {
+                inputs: {},
+                query: userMessage,
+                response_mode: "blocking",
+                user: userId
+            };
+            
+            // 如果有舊對話，帶入上下文
+            if (userConversations.has(userId)) {
+                payload.conversation_id = userConversations.get(userId);
+            }
+
+            const difyResponse = await axios.post(DIFY_API_URL, payload, {
+                headers: { 'Authorization': `Bearer ${DIFY_API_KEY}` }
+            });
+
+            let aiReply = difyResponse.data.answer;
+            
+            // 記憶上下文 ID
+            if (difyResponse.data.conversation_id) {
+                userConversations.set(userId, difyResponse.data.conversation_id);
+            }
+            
+            // 將 {LIFF_URL} 變數替換為真實網址
+            if (aiReply.includes('{LIFF_URL}') && LIFF_URL) {
+                aiReply = aiReply.replace(/{LIFF_URL}/g, LIFF_URL);
+            }
+
+            // 將 AI 的回答傳給客戶
+            await sendLineMessage(event.replyToken, aiReply);
+
+        } catch (err) {
+            console.error('Dify Error:', err.response?.data || err.message);
+        }
     }
 });
 
-// 4. 核心對話處理邏輯
-async function handleEvent(event) {
-    // 如果不是文字訊息（例如傳貼圖、照片），我們這次先不處理，或是回覆安撫語
-    if (event.type !== 'message' || event.message.type !== 'text') {
-        if (event.type === 'message' && event.message.type === 'image') {
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: '🌿 親愛的，我收到您的照片囉！請記得在等一下的評估表單中告知老師您有上傳照片，老師會親自為您檢視的 🕊️'
-            });
-        }
-        return null; 
-    }
-    
-    const userId = event.source.userId;
-    const userMessage = event.message.text;
-
+// 發送 LINE 訊息的共用函數
+async function sendLineMessage(replyToken, text) {
     try {
-        // 準備打給 Dify AI 大腦的資料包
-        const requestData = {
-            inputs: {},
-            query: userMessage,
-            response_mode: 'blocking',
-            user: userId // 讓 Dify 知道是哪位客戶
-        };
-
-        // 如果這個客戶之前聊過，我們就把對話紀錄 ID 帶進去，讓 AI 有記憶
-        if (conversations[userId]) {
-            requestData.conversation_id = conversations[userId];
-        }
-
-        // 呼叫 Dify 大腦
-        const difyRes = await axios.post('https://api.dify.ai/v1/chat-messages', requestData, {
+        await axios.post('https://api.line.me/v2/bot/message/reply', {
+            replyToken: replyToken,
+            messages: [{ type: 'text', text: text }]
+        }, {
             headers: {
-                'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${LINE_TOKEN}`
             }
         });
-
-        let aiReply = difyRes.data.answer;
-
-        // 更新這個客戶的對話 ID
-        if (difyRes.data.conversation_id) {
-            conversations[userId] = difyRes.data.conversation_id;
-        }
-
-        // ★ CTO 轉換率魔法：攔截並替換專屬表單網址 ★
-        // 當 AI 判定需要真人介入時，會說出 {LIFF_URL}，我們就在這裡把它換成真的可以點擊的 LINE 專屬網址！
-        if (aiReply.includes('{LIFF_URL}')) {
-            const liffUrl = process.env.LIFF_URL || '請老闆設定LIFF_URL環境變數';
-            aiReply = aiReply.replace('{LIFF_URL}', liffUrl);
-        }
-
-        // 把 AI 的回覆傳回給客戶的 LINE
-        return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: aiReply
-        });
-
-    } catch (error) {
-        console.error('呼叫 Dify 發生錯誤:', error.response ? error.response.data : error.message);
-        // 優雅的錯誤安撫，不讓客戶看到程式碼錯誤
-        return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: '✨ 親愛的，宇宙的能量目前正在重組中，請您稍等幾分鐘後再跟我說一次話喔 🕊️'
-        });
+    } catch (err) {
+        console.error('LINE Reply Error:', err.response?.data || err.message);
     }
 }
 
-// 5. 啟動伺服器
 const port = process.env.PORT || 3000;
-app.listen(port, () => {
-    console.log(`老闆，Irs AI 客服大掌櫃已在連接埠 ${port} 啟動，準備接單賺錢啦！🔥`);
-});
+app.listen(port, () => console.log(`Server running on port ${port}`));
