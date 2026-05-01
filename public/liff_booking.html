@@ -84,7 +84,7 @@
         // ==========================================
         // ⚠️ 老闆請注意：這裡填入您的 ID 與新拿到的網址！
         // ==========================================
-        const LIFF_ID = "2009930111-aIQlRtsV"; // ⚠️ 請務必填對，不然會出現 400 Bad Request
+        const LIFF_ID = "2009930111-aIQlRtsV"; 
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzBtG9BKCAsDISWAGIRfTGkM0JnC4yIGbJnJfl79F_IYppAU6BJ_wBXy-14SpPC_TY/exec"; 
 
         document.addEventListener("DOMContentLoaded", () => {
@@ -216,14 +216,26 @@
                 const result = await response.json();
 
                 if(result.status === 'success') {
+                    // 根據是否在 LINE 裡面，顯示不同的按鈕文字
                     await Swal.fire({
                         title: '預約成功！',
                         text: '老師已將這段時間專屬於您 🕊️',
                         icon: 'success',
                         confirmButtonColor: '#9333ea',
-                        confirmButtonText: '回到聊天室'
+                        confirmButtonText: liff.isInClient() ? '回到聊天室' : '太棒了，我知道了'
                     });
-                    liff.closeWindow();
+                    
+                    if (liff.isInClient()) {
+                        // 如果是在手機的 LINE App 裡面，直接關閉視窗
+                        liff.closeWindow();
+                    } else {
+                        // ★ 如果是在電腦網頁，清空表單並恢復按鈕，不讓他卡住
+                        Swal.fire('溫馨提示', '預約已成功記錄！您現在可以手動關閉這個網頁分頁囉 🌿', 'info');
+                        document.getElementById('bookingForm').reset();
+                        document.getElementById('timeSlotContainer').classList.add('hidden');
+                        document.getElementById('personalInfoContainer').classList.add('hidden');
+                        resetSubmitBtn();
+                    }
                 } else {
                     throw new Error(result.message);
                 }
