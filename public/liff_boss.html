@@ -35,11 +35,11 @@
         <div>
             <h2 class="text-lg font-semibold text-white mb-4 flex items-center"><span class="mr-2">⛔</span> 臨時關閉特定時段</h2>
             <form id="blockForm" class="space-y-4">
-                <input type="date" id="blockDate" required class="w-full px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-white outline-none">
-                <select id="blockTime" required class="w-full px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-white outline-none">
-                    <option value="" disabled selected>請選擇要關閉的時段...</option>
-                </select>
-                <button type="submit" id="blockBtn" class="w-full bg-red-600 text-white font-bold py-3 rounded-xl shadow-lg">🔒 立即關閉此時段</button>
+                <input type="date" id="blockDate" required class="w-full px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-white outline-none mb-2">
+                
+                <div id="blockHoursGrid" class="grid grid-cols-3 gap-4 mb-4"></div>
+                
+                <button type="submit" id="blockBtn" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl shadow-lg transition-colors">🔒 立即關閉選定時段</button>
             </form>
         </div>
     </div>
@@ -47,9 +47,6 @@
     <input type="hidden" id="lineUserId" value="">
 
     <script>
-        // ==========================================
-        // ⚠️ 老闆請注意：這裡填入中控台專屬的 ID 與最新的後端網址！
-        // ==========================================
         const LIFF_ID = "2009930593-VRgp2wPB"; 
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzBtG9BKCAsDISWAGIRfTGkM0JnC4yIGbJnJfl79F_IYppAU6BJ_wBXy-14SpPC_TY/exec"; 
         
@@ -64,10 +61,10 @@
 
         function generateHourOptions() {
             const grid = document.getElementById('hoursGrid');
-            const select = document.getElementById('blockTime');
+            const blockGrid = document.getElementById('blockHoursGrid');
             ALL_POSSIBLE_HOURS.forEach(time => {
-                grid.innerHTML += `<label class="flex flex-col items-center p-2 border border-gray-700 rounded-lg"><span class="text-xs mb-1">${time}</span><input type="checkbox" value="${time}" class="hour-checkbox w-5 h-5 accent-yellow-500"></label>`;
-                select.innerHTML += `<option value="${time}">${time}</option>`;
+                grid.innerHTML += `<label class="flex flex-col items-center p-2 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-800"><span class="text-xs mb-1 text-gray-300">${time}</span><input type="checkbox" value="${time}" class="hour-checkbox w-5 h-5 accent-yellow-500 rounded bg-gray-700 border-gray-600"></label>`;
+                blockGrid.innerHTML += `<label class="flex flex-col items-center p-2 border border-red-900 rounded-lg cursor-pointer hover:bg-red-900/40"><span class="text-xs mb-1 text-red-300">${time}</span><input type="checkbox" value="${time}" class="block-hour-checkbox w-5 h-5 accent-red-500 rounded bg-gray-700 border-gray-600"></label>`;
             });
         }
 
@@ -78,8 +75,24 @@
                     const profile = await liff.getProfile();
                     document.getElementById('lineUserId').value = profile.userId;
                     fetchCurrentSettings();
-                } else { liff.login(); }
-            } catch (err) { console.error(err); }
+                } else { 
+                    // ★ CTO 防呆機制：如果是網頁預覽視窗，不強制跳轉 LINE 登入，避免無限閃爍！
+                    if (window !== window.top) {
+                        const loadingDiv = document.getElementById('loadingSettings');
+                        loadingDiv.classList.remove('animate-pulse', 'text-yellow-500');
+                        loadingDiv.classList.add('text-red-400');
+                        loadingDiv.innerText = "⚠️ 電腦預覽模式無法登入 LINE。\n請將 LIFF 網址傳到手機 LINE 裡面打開測試！";
+                        return;
+                    }
+                    liff.login({ redirectUri: window.location.href }); 
+                }
+            } catch (err) { 
+                console.error("LIFF 錯誤", err); 
+                const loadingDiv = document.getElementById('loadingSettings');
+                loadingDiv.classList.remove('animate-pulse', 'text-yellow-500');
+                loadingDiv.classList.add('text-red-400');
+                loadingDiv.innerText = "⚠️ 找不到 LINE 授權資訊。";
+            }
         }
 
         async function fetchCurrentSettings() {
@@ -90,27 +103,69 @@
                     document.querySelectorAll('.hour-checkbox').forEach(cb => { if (data.hours.includes(cb.value)) cb.checked = true; });
                     document.getElementById('loadingSettings').classList.add('hidden');
                     document.getElementById('settingsForm').classList.remove('hidden');
+                } else {
+                    throw new Error(data.message || "資料庫回傳異常");
                 }
-            } catch (error) { console.error(error); }
+            } catch (error) { 
+                console.error("抓取設定失敗", error); 
+                const loadingDiv = document.getElementById('loadingSettings');
+                loadingDiv.classList.remove('animate-pulse', 'text-yellow-500');
+                loadingDiv.classList.add('text-red-500', 'font-bold');
+                loadingDiv.innerText = "❌ 無法連線到 Google 資料庫！請確認網址！";
+            }
         }
 
+        // 儲存常態營業時段
         document.getElementById('settingsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const btn = document.getElementById('saveBtn');
+            btn.innerHTML = '儲存中...'; btn.disabled = true;
+
             const selectedHours = Array.from(document.querySelectorAll('.hour-checkbox:checked')).map(cb => cb.value);
             try {
-                const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: "saveSettings", hours: selectedHours, userId: document.getElementById('lineUserId').value }) });
+                const res = await fetch(GOOGLE_SCRIPT_URL, { 
+                    method: 'POST', 
+                    body: JSON.stringify({ action: "saveSettings", hours: selectedHours, userId: document.getElementById('lineUserId').value }) 
+                });
                 const data = await res.json();
-                if (data.status === 'success') Swal.fire('成功', '營業時段已更新', 'success');
-            } catch (error) { Swal.fire('錯誤', '儲存失敗', 'error'); }
+                if (data.status === 'success') Swal.fire('成功', '營業時段已全面更新！', 'success');
+                else throw new Error(data.message);
+            } catch (error) { 
+                Swal.fire('錯誤', error.message || '儲存失敗', 'error'); 
+            } finally {
+                btn.innerHTML = '💾 儲存營業時段'; btn.disabled = false;
+            }
         });
 
+        // 執行臨時關閉特定時段
         document.getElementById('blockForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const selectedBlockHours = Array.from(document.querySelectorAll('.block-hour-checkbox:checked')).map(cb => cb.value);
+            
+            if (selectedBlockHours.length === 0) {
+                Swal.fire('溫馨提醒', '老闆，請至少勾選一個要關閉的時段喔！', 'warning');
+                return;
+            }
+
+            const btn = document.getElementById('blockBtn');
+            btn.innerHTML = '關閉中...'; btn.disabled = true;
+
             try {
-                const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action: "addBlock", date: document.getElementById('blockDate').value, time: document.getElementById('blockTime').value, userId: document.getElementById('lineUserId').value }) });
+                const res = await fetch(GOOGLE_SCRIPT_URL, { 
+                    method: 'POST', 
+                    body: JSON.stringify({ action: "addBlock", date: document.getElementById('blockDate').value, times: selectedBlockHours, userId: document.getElementById('lineUserId').value }) 
+                });
                 const data = await res.json();
-                if (data.status === 'success') Swal.fire('成功', '該時段已關閉', 'success');
-            } catch (error) { Swal.fire('錯誤', '操作失敗', 'error'); }
+                
+                if (data.status === 'success') {
+                    Swal.fire('成功', '選定的時段已全部在行事曆上關閉！', 'success');
+                    document.getElementById('blockForm').reset(); 
+                } else throw new Error(data.message);
+            } catch (error) { 
+                Swal.fire('錯誤', error.message || '操作失敗', 'error'); 
+            } finally {
+                btn.innerHTML = '🔒 立即關閉選定時段'; btn.disabled = false;
+            }
         });
     </script>
 </body>
